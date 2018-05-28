@@ -1,39 +1,25 @@
 import React, { Component } from 'react'
-import SimpleStorageContract from '../build/contracts/SimpleStorage.json'
+import Voting from '../build/contracts/Voting.json'
 import getWeb3 from './utils/getWeb3'
-
-import './css/oswald.css'
-import './css/open-sans.css'
-import './css/pure-min.css'
-import './App.css'
+import { Container, Row, Col, Button } from 'reactstrap'
+import Header from './components/Header'
 
 class App extends Component {
   constructor(props) {
     super(props)
 
     this.state = {
-      storageValue: 0,
+      candidates: [],
       web3: null,
       address: null
     }
   }
 
   componentWillMount() {
-    // Get network provider and web3 instance.
-    // See utils/getWeb3 for more info.
-
-    getWeb3
-    .then(results => {
-      this.setState({
-        web3: results.web3
-      })
-
-      // Instantiate contract once web3 provided.
+    getWeb3.then(results => {
+      this.setState({ web3: results.web3 })
       this.instantiateContract()
-    })
-    .catch(() => {
-      console.log('Error finding web3.')
-    })
+    }).catch(() => console.log('Error finding web3.'))
   }
 
   instantiateContract() {
@@ -45,53 +31,50 @@ class App extends Component {
      */
 
     const contract = require('truffle-contract')
-    const simpleStorage = contract(SimpleStorageContract)
-    simpleStorage.setProvider(this.state.web3.currentProvider)
-
-    // Declaring this for later so we can chain functions on SimpleStorage.
-    var simpleStorageInstance
+    const voting = contract(Voting)
+    voting.setProvider(this.state.web3.currentProvider)
 
     // Get accounts.
     this.state.web3.eth.getAccounts((error, accounts) => {
-      simpleStorage.deployed().then((instance) => {
-        simpleStorageInstance = instance
-        // // Stores a given value, 5 by default.
-        // console.log(instance.address);
-        // this.setState({ address: instance.address })
-        // console.log(simpleStorageInstance.get.call(accounts[0]));
-        // return simpleStorageInstance.set(5, {from: accounts[0]})
-        return simpleStorageInstance.get.call(accounts[0])
-      // }).then((result) => {
-      //   console.log(result);
-      //   // Get the value from the contract to prove it worked.
-      //   return simpleStorageInstance.get.call(accounts[0])
-      }).then((result) => {
-        console.log(result)
-        // Update state with the result.
-        return this.setState({ storageValue: result.c[0] })
-      })
+      voting.deployed().then((instance) => {
+        this.setState({ votingInstance: instance })
+        return instance.getCandidateList.call()
+      }).then(candidateList => candidateList.map(name => this.state.votingInstance.totalVotesFor.call(name).then(value => { 
+            const candidates = this.state.candidates
+            candidates.push({ name: name, votes: value.c[0] })
+            this.setState({ candidates: candidates })
+          })
+        )
+      )
     })
   }
 
+  vote(e, name) {
+      e.preventDefault()
+      const votingInstance = this.state.votingInstance
+      votingInstance.voteForCandidate(name, {gas: 140000, from: this.state.web3.eth.accounts[0]}).then((tx) => {
+        return votingInstance.totalVotesFor.call(name).then(value => {
+          const candidates = this.state.candidates.filter(c => c.name !== name)
+          candidates.push({ name: name, votes: value.c[0] })
+          this.setState({ candidates: candidates })
+        })
+      })
+  }
+
   render() {
+    const items = this.state.candidates.map(c => 
+      <Row key={c.name}>
+        <Col>{this.state.web3.toAscii(c.name)}</Col>
+        <Col>Votes: {c.votes}</Col>
+        <Col><Button color="primary" onClick={e => this.vote(e, c.name)}>Vote</Button></Col>
+      </Row>
+    )
     return (
       <div className="App">
-        <nav className="navbar pure-menu pure-menu-horizontal">
-            <a href="#" className="pure-menu-heading pure-menu-link">Truffle Box</a>
-        </nav>
-
-        <main className="container">
-          <div className="pure-g">
-            <div className="pure-u-1-1">
-              <h1>Good to Go!</h1>
-              <p>Your Truffle Box is installed and ready.</p>
-              <h2>Smart Contract Example</h2>
-              <p>If your contracts compiled and migrated successfully, below will show a stored value of 5 (by default).</p>
-              <p>Try changing the value stored on <strong>line 59</strong> of App.js.</p>
-              <p>The stored value is: {this.state.storageValue}</p>
-            </div>
-          </div>
-        </main>
+        <Header></Header>
+        <Container>
+              {items}
+        </Container>
       </div>
     );
   }
